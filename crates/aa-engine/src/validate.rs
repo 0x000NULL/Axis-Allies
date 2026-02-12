@@ -4,15 +4,22 @@
 //! Detailed validation for each phase will be implemented in later phases.
 
 use crate::action::{Action, InverseAction};
+use crate::data::GameMap;
 use crate::error::EngineError;
+use crate::movement;
 use crate::phase::{Phase, PhaseState};
 use crate::power::Power;
 use crate::state::GameState;
-use crate::territory::TerritoryId;
-use crate::unit::{get_unit_stats, UnitType};
+use crate::territory::{RegionId, TerritoryId};
+use crate::unit::{get_unit_stats, UnitDomain, UnitType};
 
 /// Validate that an action is legal in the current game state.
 pub fn validate_action(state: &GameState, action: &Action) -> Result<(), EngineError> {
+    validate_action_with_map(state, action, None)
+}
+
+/// Validate that an action is legal, with optional map for movement validation.
+pub fn validate_action_with_map(state: &GameState, action: &Action, map: Option<&GameMap>) -> Result<(), EngineError> {
     // Basic phase validation
     match action {
         Action::PurchaseUnit { .. }
@@ -109,6 +116,24 @@ pub fn validate_action(state: &GameState, action: &Action) -> Result<(), EngineE
         }
         Action::ConfirmPurchases => {
             // Always valid if in correct phase (already checked above)
+        }
+        Action::MoveUnit { unit_id, path } => {
+            validate_move_unit(state, map, *unit_id, path)?;
+        }
+        Action::UndoMove { unit_id } => {
+            validate_undo_move(state, *unit_id)?;
+        }
+        Action::ConfirmCombatMovement => {
+            validate_confirm_combat_movement(state, map)?;
+        }
+        Action::MoveUnitNonCombat { unit_id, path } => {
+            validate_move_unit_noncombat(state, map, *unit_id, path)?;
+        }
+        Action::LandAirUnit { unit_id, territory_id } => {
+            validate_land_air_unit(state, map, *unit_id, *territory_id)?;
+        }
+        Action::ConfirmNonCombatMovement => {
+            validate_confirm_noncombat_movement(state)?;
         }
         _ => {}
     }
@@ -268,5 +293,182 @@ fn validate_repair_facility(
         });
     }
 
+    Ok(())
+}
+
+// =========================================================================
+// Movement validation
+// =========================================================================
+
+/// Validate a MoveUnit action during Combat Movement.
+fn validate_move_unit(
+    state: &GameState,
+    map: Option<&GameMap>,
+    unit_id: u32,
+    path: &[RegionId],
+) -> Result<(), EngineError> {
+    let map = map.ok_or(EngineError::Internal("Map required for movement validation".into()))?;
+
+    let (current_region, unit) = movement::find_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    // Unit must belong to current power
+    if unit.owner != state.current_power {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit does not belong to current power".into(),
+        });
+    }
+
+    // Unit must not have already moved
+    if unit.moved_this_turn {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit has already moved this turn".into(),
+        });
+    }
+
+    // Path must start at unit's current location
+    if path.is_empty() || path[0] != current_region {
+        return Err(EngineError::IllegalMove {
+            reason: "Path must start at unit's current location".into(),
+        });
+    }
+
+    // Validate the path
+    movement::validate_combat_move(state, map, state.current_power, unit, path)?;
+
+    Ok(())
+}
+
+/// Validate an UndoMove action.
+fn validate_undo_move(state: &GameState, unit_id: u32) -> Result<(), EngineError> {
+    // Check that this unit has a recorded move in the phase state
+    let cms = match &state.phase_state {
+        PhaseState::CombatMove(cms) => cms,
+        _ => {
+            return Err(EngineError::WrongPhase {
+                expected: "CombatMovement".into(),
+                actual: format!("{:?}", state.current_phase),
+            });
+        }
+    };
+
+    if !cms.moves.iter().any(|m| m.unit_id == unit_id) {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit has no recorded move to undo".into(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate ConfirmCombatMovement: check that all air units have potential landing spots.
+fn validate_confirm_combat_movement(
+    state: &GameState,
+    map: Option<&GameMap>,
+) -> Result<(), EngineError> {
+    let map = map.ok_or(EngineError::Internal("Map required for movement validation".into()))?;
+    let power = state.current_power;
+
+    let cms = match &state.phase_state {
+        PhaseState::CombatMove(cms) => cms,
+        _ => return Ok(()),
+    };
+
+    // For each moved air unit, check it has a potential landing spot
+    for planned in &cms.moves {
+        // Find the unit at its destination
+        if let Some((_region, unit)) = movement::find_unit(state, planned.unit_id) {
+            let stats = get_unit_stats(unit.unit_type);
+            if stats.domain == UnitDomain::Air {
+                let movement_used = (planned.path.len() as u8).saturating_sub(1);
+                if !movement::air_unit_has_potential_landing(
+                    state,
+                    map,
+                    power,
+                    unit,
+                    planned.to,
+                    movement_used,
+                ) {
+                    return Err(EngineError::IllegalMove {
+                        reason: format!(
+                            "Air unit {} has no potential landing spot",
+                            planned.unit_id
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a MoveUnitNonCombat action.
+fn validate_move_unit_noncombat(
+    state: &GameState,
+    map: Option<&GameMap>,
+    unit_id: u32,
+    path: &[RegionId],
+) -> Result<(), EngineError> {
+    let map = map.ok_or(EngineError::Internal("Map required for movement validation".into()))?;
+
+    let (current_region, unit) = movement::find_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    // Unit must belong to current power
+    if unit.owner != state.current_power {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit does not belong to current power".into(),
+        });
+    }
+
+    // Unit must not have already moved this turn (in combat movement)
+    // Exception: units that didn't move in combat can move in non-combat
+    if unit.moved_this_turn {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit has already moved this turn".into(),
+        });
+    }
+
+    // Path must start at unit's current location
+    if path.is_empty() || path[0] != current_region {
+        return Err(EngineError::IllegalMove {
+            reason: "Path must start at unit's current location".into(),
+        });
+    }
+
+    movement::validate_noncombat_move(state, map, state.current_power, unit, path)?;
+
+    Ok(())
+}
+
+/// Validate a LandAirUnit action.
+fn validate_land_air_unit(
+    state: &GameState,
+    map: Option<&GameMap>,
+    unit_id: u32,
+    destination: RegionId,
+) -> Result<(), EngineError> {
+    let map = map.ok_or(EngineError::Internal("Map required for movement validation".into()))?;
+
+    let (_current_region, unit) = movement::find_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    if unit.owner != state.current_power {
+        return Err(EngineError::InvalidAction {
+            reason: "Unit does not belong to current power".into(),
+        });
+    }
+
+    movement::validate_air_landing(state, map, state.current_power, unit, destination)?;
+
+    Ok(())
+}
+
+/// Validate ConfirmNonCombatMovement: all air units that moved must be landed.
+fn validate_confirm_noncombat_movement(_state: &GameState) -> Result<(), EngineError> {
+    // Check that no air units are "in flight" (moved but not landed)
+    // This is simplified - in a full implementation we'd track air units in flight
+    // For now, always valid
     Ok(())
 }

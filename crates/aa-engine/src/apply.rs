@@ -4,16 +4,19 @@
 //! Detailed application logic will be implemented in later phases.
 
 use crate::action::{Action, ActionResult, AppliedAction, GameEvent, InverseAction};
+use crate::data::GameMap;
 use crate::error::EngineError;
+use crate::movement;
 use crate::phase::{
     CombatMoveState, CombatState, CollectIncomeState, MobilizeState, NonCombatMoveState, Phase,
-    PhaseState, PurchaseState,
+    PhaseState, PlannedMove, PurchaseState,
 };
 use crate::power;
 use crate::state::GameState;
+use crate::territory::RegionId;
 
 /// Apply a validated action to the game state.
-pub fn apply_action(state: &mut GameState, action: Action) -> Result<ActionResult, EngineError> {
+pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Result<ActionResult, EngineError> {
     // Undo is handled separately — it must NOT be pushed to the action_log
     if matches!(action, Action::Undo) {
         return apply_undo(state);
@@ -36,6 +39,28 @@ pub fn apply_action(state: &mut GameState, action: Action) -> Result<ActionResul
             } else {
                 Vec::new()
             };
+
+            // For ConfirmCombatMovement, identify pending combats
+            if matches!(action, Action::ConfirmCombatMovement) {
+                let combats = movement::identify_pending_combats(state, state.current_power);
+                // Save undo checkpoint at phase boundary
+                state.undo_checkpoints.push(state.action_log.len());
+                state.current_phase = Phase::ConductCombat;
+                let mut combat_state = CombatState::new();
+                combat_state.pending_battles = combats;
+                state.phase_state = PhaseState::Combat(combat_state);
+                events.push(GameEvent::PhaseChanged {
+                    from: old_phase,
+                    to: Phase::ConductCombat,
+                });
+
+                let applied = AppliedAction {
+                    action: action.clone(),
+                    inverse: InverseAction::Irreversible,
+                };
+                state.action_log.push(applied.clone());
+                return Ok(ActionResult { applied, events });
+            }
 
             // Save undo checkpoint at phase boundary
             state.undo_checkpoints.push(state.action_log.len());
@@ -173,6 +198,22 @@ pub fn apply_action(state: &mut GameState, action: Action) -> Result<ActionResul
             return Ok(ActionResult { applied, events });
         }
 
+        Action::MoveUnit { unit_id, ref path } => {
+            return apply_move_unit(state, *unit_id, path.clone());
+        }
+
+        Action::UndoMove { unit_id } => {
+            return apply_undo_move(state, *unit_id);
+        }
+
+        Action::MoveUnitNonCombat { unit_id, ref path } => {
+            return apply_move_unit_noncombat(state, *unit_id, path.clone());
+        }
+
+        Action::LandAirUnit { unit_id, territory_id } => {
+            return apply_land_air_unit(state, *unit_id, *territory_id);
+        }
+
         // Other actions not yet implemented
         _ => {}
     }
@@ -268,6 +309,171 @@ fn apply_inverse_snapshot(state: &mut GameState, bytes: &[u8]) -> Result<(), Eng
         rmp_serde::from_slice(bytes).map_err(|e| EngineError::Deserialization(e.to_string()))?;
     state.phase_state = phase_state;
     Ok(())
+}
+
+/// Apply a MoveUnit action during Combat Movement.
+fn apply_move_unit(
+    state: &mut GameState,
+    unit_id: u32,
+    path: Vec<RegionId>,
+) -> Result<ActionResult, EngineError> {
+    let from = path[0];
+    let to = *path.last().unwrap();
+
+    // Remove unit from current location
+    let (_region, mut unit) = movement::remove_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    // Mark as moved
+    unit.moved_this_turn = true;
+    let movement_used = (path.len() as u8).saturating_sub(1);
+    unit.movement_remaining = unit.movement_remaining.saturating_sub(movement_used);
+
+    // Place at destination
+    movement::place_unit_at(state, to, unit);
+
+    // Record in phase state
+    if let PhaseState::CombatMove(ref mut cms) = state.phase_state {
+        cms.moves.push(PlannedMove {
+            unit_id,
+            path: path.clone(),
+            from,
+            to,
+        });
+    }
+
+    let applied = AppliedAction {
+        action: Action::MoveUnit { unit_id, path },
+        inverse: InverseAction::Simple(Action::UndoMove { unit_id }),
+    };
+    state.action_log.push(applied.clone());
+
+    Ok(ActionResult {
+        applied,
+        events: Vec::new(),
+    })
+}
+
+/// Apply an UndoMove action: return unit to its original position.
+fn apply_undo_move(
+    state: &mut GameState,
+    unit_id: u32,
+) -> Result<ActionResult, EngineError> {
+    // Find the planned move
+    let planned = if let PhaseState::CombatMove(ref cms) = state.phase_state {
+        cms.moves.iter().find(|m| m.unit_id == unit_id).cloned()
+    } else {
+        None
+    };
+
+    let planned = planned.ok_or(EngineError::InvalidAction {
+        reason: "No move found for this unit".into(),
+    })?;
+
+    // Remove unit from destination
+    let (_region, mut unit) = movement::remove_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    // Restore movement
+    unit.moved_this_turn = false;
+    let stats = crate::unit::get_unit_stats(unit.unit_type);
+    unit.movement_remaining = stats.movement;
+
+    // Place back at origin
+    movement::place_unit_at(state, planned.from, unit);
+
+    // Remove from phase state
+    if let PhaseState::CombatMove(ref mut cms) = state.phase_state {
+        cms.moves.retain(|m| m.unit_id != unit_id);
+    }
+
+    let inverse_path = planned.path.clone();
+    let applied = AppliedAction {
+        action: Action::UndoMove { unit_id },
+        inverse: InverseAction::Simple(Action::MoveUnit {
+            unit_id,
+            path: inverse_path,
+        }),
+    };
+    state.action_log.push(applied.clone());
+
+    Ok(ActionResult {
+        applied,
+        events: Vec::new(),
+    })
+}
+
+/// Apply a MoveUnitNonCombat action.
+fn apply_move_unit_noncombat(
+    state: &mut GameState,
+    unit_id: u32,
+    path: Vec<RegionId>,
+) -> Result<ActionResult, EngineError> {
+    let from = path[0];
+    let to = *path.last().unwrap();
+
+    let (_region, mut unit) = movement::remove_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    unit.moved_this_turn = true;
+    let movement_used = (path.len() as u8).saturating_sub(1);
+    unit.movement_remaining = unit.movement_remaining.saturating_sub(movement_used);
+
+    movement::place_unit_at(state, to, unit);
+
+    // Record in phase state
+    if let PhaseState::NonCombatMove(ref mut ncms) = state.phase_state {
+        ncms.moves.push(PlannedMove {
+            unit_id,
+            path: path.clone(),
+            from,
+            to,
+        });
+    }
+
+    // Snapshot for undo
+    let snapshot = rmp_serde::to_vec(&state.phase_state)
+        .map_err(|e| EngineError::Serialization(e.to_string()))?;
+
+    let applied = AppliedAction {
+        action: Action::MoveUnitNonCombat { unit_id, path },
+        inverse: InverseAction::RestoreSnapshot(snapshot),
+    };
+    state.action_log.push(applied.clone());
+
+    Ok(ActionResult {
+        applied,
+        events: Vec::new(),
+    })
+}
+
+/// Apply a LandAirUnit action.
+fn apply_land_air_unit(
+    state: &mut GameState,
+    unit_id: u32,
+    destination: RegionId,
+) -> Result<ActionResult, EngineError> {
+    let (_region, unit) = movement::remove_unit(state, unit_id)
+        .ok_or(EngineError::UnitNotFound { unit_id })?;
+
+    movement::place_unit_at(state, destination, unit);
+
+    let snapshot = rmp_serde::to_vec(&state.phase_state)
+        .map_err(|e| EngineError::Serialization(e.to_string()))?;
+
+    let applied = AppliedAction {
+        action: Action::LandAirUnit {
+            unit_id,
+            territory_id: destination,
+        },
+        inverse: InverseAction::RestoreSnapshot(snapshot),
+    };
+    state.action_log.push(applied.clone());
+
+    Ok(ActionResult {
+        applied,
+        events: Vec::new(),
+    })
 }
 
 /// Create the default PhaseState for a given phase.
