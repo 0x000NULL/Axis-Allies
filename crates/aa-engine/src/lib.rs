@@ -15,6 +15,7 @@ pub mod setup;
 pub mod state;
 pub mod territory;
 pub mod unit;
+pub mod purchase;
 pub mod validate;
 
 pub mod data;
@@ -59,6 +60,11 @@ impl Engine {
     /// Get a reference to the current game state.
     pub fn state(&self) -> &GameState {
         &self.state
+    }
+
+    /// Get a mutable reference to the game state (for tests/setup).
+    pub fn state_mut(&mut self) -> &mut GameState {
+        &mut self.state
     }
 
     /// Check whether the last action can be undone.
