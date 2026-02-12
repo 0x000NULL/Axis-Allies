@@ -730,10 +730,10 @@ mod tests {
     #[test]
     fn test_find_unit_in_sea_zone() {
         let (mut state, _map) = test_state_and_map();
-        let unit = UnitInstance::new(2, UnitType::Destroyer, Power::Germany);
+        let unit = UnitInstance::new(99902, UnitType::Destroyer, Power::Germany);
         state.sea_zones[sz::SZ_BALTIC_SEA as usize].units.push(unit);
 
-        let found = find_unit(&state, 2);
+        let found = find_unit(&state, 99902);
         assert!(found.is_some());
         let (region, _u) = found.unwrap();
         assert_eq!(region, RegionId::Sea(sz::SZ_BALTIC_SEA));
@@ -802,10 +802,13 @@ mod tests {
     #[test]
     fn test_remove_and_place_unit() {
         let (mut state, _map) = test_state_and_map();
-        let unit = UnitInstance::new(1, UnitType::Infantry, Power::Germany);
+        // Clear existing units so we can test in isolation
+        state.territories[t::GERMANY as usize].units.clear();
+        state.territories[t::WESTERN_GERMANY as usize].units.clear();
+        let unit = UnitInstance::new(99901, UnitType::Infantry, Power::Germany);
         state.territories[t::GERMANY as usize].units.push(unit);
 
-        let (region, unit) = remove_unit(&mut state, 1).unwrap();
+        let (region, unit) = remove_unit(&mut state, 99901).unwrap();
         assert_eq!(region, RegionId::Land(t::GERMANY));
         assert!(state.territories[t::GERMANY as usize].units.is_empty());
 

@@ -342,7 +342,8 @@ mod tests {
         // France starts with Paris captured, so very little income
         // But still controls some colonies
         // This depends on setup
-        assert!(income >= 0);
+        // u32 is always >= 0; just verify the function doesn't panic
+        let _ = income;
     }
 
     #[test]
@@ -357,9 +358,12 @@ mod tests {
     #[test]
     fn test_convoy_disruption_no_enemies() {
         let map = GameMap::new();
-        let state = setup::create_initial_state(42, &map);
+        let mut state = setup::create_initial_state(42, &map);
+        // Clear all sea zone units so there are no enemy ships
+        for sz in state.sea_zones.iter_mut() {
+            sz.units.clear();
+        }
         let losses = calculate_convoy_disruption(&state, &map, Power::Germany);
-        // No enemy subs in convoy zones at start
         assert_eq!(losses, 0);
     }
 
