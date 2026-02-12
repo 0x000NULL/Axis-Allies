@@ -16,6 +16,7 @@ pub mod state;
 pub mod territory;
 pub mod unit;
 pub mod purchase;
+pub mod movement;
 pub mod validate;
 
 pub mod data;
@@ -52,8 +53,8 @@ impl Engine {
 
     /// Submit a player action. The engine validates, applies, and returns the result.
     pub fn submit_action(&mut self, action: Action) -> Result<ActionResult, EngineError> {
-        validate::validate_action(&self.state, &action)?;
-        let result = apply::apply_action(&mut self.state, action)?;
+        validate::validate_action_with_map(&self.state, &action, Some(&self.map))?;
+        let result = apply::apply_action(&mut self.state, action, &self.map)?;
         Ok(result)
     }
 
@@ -78,7 +79,7 @@ impl Engine {
 
     /// Validate whether an action is legal without applying it.
     pub fn is_action_legal(&self, action: &Action) -> Result<(), EngineError> {
-        validate::validate_action(&self.state, action)
+        validate::validate_action_with_map(&self.state, action, Some(&self.map))
     }
 
     /// Get the list of currently legal actions.
