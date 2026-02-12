@@ -1,0 +1,17 @@
+{
+  "name": "aa-wasm",
+  "type": "module",
+  "description": "WASM bridge for Axis & Allies game engine",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "aa_wasm_bg.wasm",
+    "aa_wasm.js",
+    "aa_wasm.d.ts"
+  ],
+  "main": "aa_wasm.js",
+  "types": "aa_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
