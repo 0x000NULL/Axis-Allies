@@ -214,6 +214,34 @@ pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Re
             return apply_land_air_unit(state, *unit_id, *territory_id);
         }
 
+        Action::SelectBattle { location } => {
+            return apply_select_battle_action(state, *location);
+        }
+
+        Action::RollAttack => {
+            return apply_roll_attack_action(state);
+        }
+
+        Action::RollDefense => {
+            return apply_roll_defense_action(state);
+        }
+
+        Action::SelectCasualties { casualties } => {
+            return apply_select_casualties_action(state, casualties.clone());
+        }
+
+        Action::AttackerRetreat { to } => {
+            return apply_attacker_retreat_action(state, *to);
+        }
+
+        Action::SubmergeSubmarine { unit_id } => {
+            return apply_submerge_action(state, *unit_id);
+        }
+
+        Action::ContinueCombatRound => {
+            return apply_continue_combat_action(state);
+        }
+
         // Other actions not yet implemented
         _ => {}
     }
@@ -474,6 +502,198 @@ fn apply_land_air_unit(
         applied,
         events: Vec::new(),
     })
+}
+
+// =========================================================================
+// Combat phase action handlers
+// =========================================================================
+
+use crate::combat;
+
+fn apply_select_battle_action(
+    state: &mut GameState,
+    location: RegionId,
+) -> Result<ActionResult, EngineError> {
+    let (active_combat, events) = combat::apply_select_battle(state, location)?;
+
+    if let PhaseState::Combat(ref mut cs) = state.phase_state {
+        cs.active_combat = Some(active_combat);
+    }
+
+    let applied = AppliedAction {
+        action: Action::SelectBattle { location },
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events })
+}
+
+fn apply_roll_attack_action(
+    state: &mut GameState,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+    let events = combat::apply_roll_attack(state, &mut active_combat)?;
+    store_active_combat(state, active_combat);
+
+    let applied = AppliedAction {
+        action: Action::RollAttack,
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events })
+}
+
+fn apply_roll_defense_action(
+    state: &mut GameState,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+    let events = combat::apply_roll_defense(state, &mut active_combat)?;
+    store_active_combat(state, active_combat);
+
+    let applied = AppliedAction {
+        action: Action::RollDefense,
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events })
+}
+
+fn apply_select_casualties_action(
+    state: &mut GameState,
+    casualties: Vec<u32>,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+
+    let defender_side = matches!(
+        active_combat.sub_phase,
+        combat::CombatSubPhase::AAFireCasualties
+        | combat::CombatSubPhase::DefenderSelectsCasualties
+        | combat::CombatSubPhase::ShoreBombardmentCasualties
+        | combat::CombatSubPhase::DefenderSubmarineStrikeCasualties
+    );
+
+    let events = combat::apply_casualties(state, &mut active_combat, &casualties, defender_side)?;
+
+    // Check if battle ended after casualties
+    if active_combat.sub_phase == combat::CombatSubPhase::BattleOver {
+        let battle_events = combat::finalize_battle(state, &active_combat);
+        let location = active_combat.location;
+        if let PhaseState::Combat(ref mut cs) = state.phase_state {
+            cs.resolved_battles.push(location);
+            cs.current_battle = None;
+            cs.active_combat = None;
+        }
+        let applied = AppliedAction {
+            action: Action::SelectCasualties { casualties },
+            inverse: InverseAction::Irreversible,
+        };
+        state.action_log.push(applied.clone());
+        let mut all_events = events;
+        all_events.extend(battle_events);
+        return Ok(ActionResult { applied, events: all_events });
+    }
+
+    store_active_combat(state, active_combat);
+
+    let applied = AppliedAction {
+        action: Action::SelectCasualties { casualties },
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events })
+}
+
+fn apply_attacker_retreat_action(
+    state: &mut GameState,
+    retreat_to: RegionId,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+    let mut events = combat::apply_retreat(state, &mut active_combat, retreat_to)?;
+    let battle_events = combat::finalize_battle(state, &active_combat);
+    events.extend(battle_events);
+
+    let location = active_combat.location;
+    if let PhaseState::Combat(ref mut cs) = state.phase_state {
+        cs.resolved_battles.push(location);
+        cs.current_battle = None;
+        cs.active_combat = None;
+    }
+
+    let applied = AppliedAction {
+        action: Action::AttackerRetreat { to: retreat_to },
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events })
+}
+
+fn apply_submerge_action(
+    state: &mut GameState,
+    unit_id: u32,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+    combat::apply_submerge(state, &mut active_combat, unit_id)?;
+
+    if active_combat.sub_phase == combat::CombatSubPhase::BattleOver {
+        let events = combat::finalize_battle(state, &active_combat);
+        let location = active_combat.location;
+        if let PhaseState::Combat(ref mut cs) = state.phase_state {
+            cs.resolved_battles.push(location);
+            cs.current_battle = None;
+            cs.active_combat = None;
+        }
+        let applied = AppliedAction {
+            action: Action::SubmergeSubmarine { unit_id },
+            inverse: InverseAction::Irreversible,
+        };
+        state.action_log.push(applied.clone());
+        return Ok(ActionResult { applied, events });
+    }
+
+    store_active_combat(state, active_combat);
+
+    let applied = AppliedAction {
+        action: Action::SubmergeSubmarine { unit_id },
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events: Vec::new() })
+}
+
+fn apply_continue_combat_action(
+    state: &mut GameState,
+) -> Result<ActionResult, EngineError> {
+    let mut active_combat = extract_active_combat(state)?;
+    combat::continue_combat_round(state, &mut active_combat);
+    store_active_combat(state, active_combat);
+
+    let applied = AppliedAction {
+        action: Action::ContinueCombatRound,
+        inverse: InverseAction::Irreversible,
+    };
+    state.action_log.push(applied.clone());
+    Ok(ActionResult { applied, events: Vec::new() })
+}
+
+/// Extract active combat from phase state.
+fn extract_active_combat(state: &mut GameState) -> Result<combat::ActiveCombat, EngineError> {
+    if let PhaseState::Combat(ref mut cs) = state.phase_state {
+        cs.active_combat.take().ok_or(EngineError::InvalidAction {
+            reason: "No active battle".into(),
+        })
+    } else {
+        Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        })
+    }
+}
+
+/// Store active combat back into phase state.
+fn store_active_combat(state: &mut GameState, combat: combat::ActiveCombat) {
+    if let PhaseState::Combat(ref mut cs) = state.phase_state {
+        cs.active_combat = Some(combat);
+    }
 }
 
 /// Create the default PhaseState for a given phase.

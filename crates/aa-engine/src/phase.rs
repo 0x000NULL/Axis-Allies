@@ -117,6 +117,9 @@ pub struct CombatState {
     pub pending_battles: Vec<RegionId>,
     pub resolved_battles: Vec<RegionId>,
     pub current_battle: Option<RegionId>,
+    /// The active combat being resolved (if any).
+    #[ts(skip)]
+    pub active_combat: Option<crate::combat::ActiveCombat>,
 }
 
 impl CombatState {
@@ -125,6 +128,7 @@ impl CombatState {
             pending_battles: Vec::new(),
             resolved_battles: Vec::new(),
             current_battle: None,
+            active_combat: None,
         }
     }
 }

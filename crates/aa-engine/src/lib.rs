@@ -6,6 +6,7 @@
 
 pub mod action;
 pub mod apply;
+pub mod bombing;
 pub mod combat;
 pub mod dice;
 pub mod error;
