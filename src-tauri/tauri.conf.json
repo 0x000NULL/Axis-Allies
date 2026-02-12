@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/examples/a_]tauri/src-tauri/tauri.conf.json",
+  "productName": "Axis & Allies Global 1940",
+  "version": "0.1.0",
+  "identifier": "com.axisallies.global1940",
+  "build": {
+    "frontendDist": "../client/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../client && npm run dev",
+    "beforeBuildCommand": "cd ../client && npm run build"
+  },
+  "app": {
+    "title": "Axis & Allies Global 1940",
+    "windows": [
+      {
+        "title": "Axis & Allies Global 1940",
+        "width": 1600,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 1024,
+        "minHeight": 768
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

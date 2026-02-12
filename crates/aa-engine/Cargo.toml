@@ -1,0 +1,18 @@
+[package]
+name = "aa-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Axis & Allies Global 1940 game engine"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }
+rmp-serde = "1"
+ts-rs = { version = "10", features = ["serde-compat"] }
+
+[dev-dependencies]
+pretty_assertions = "1"

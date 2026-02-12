@@ -1,0 +1,3 @@
+# Use GNU toolchain to avoid PATH conflict with Git's link.exe shadowing MSVC's
+[build]
+target = "x86_64-pc-windows-gnu"
