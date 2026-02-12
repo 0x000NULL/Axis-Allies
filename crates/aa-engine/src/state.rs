@@ -149,6 +149,9 @@ pub struct GameState {
     #[ts(skip)]
     pub undo_checkpoints: Vec<usize>,
 
+    /// Units purchased this turn, to be placed during Mobilize phase.
+    pub pending_purchases: Vec<(crate::unit::UnitType, u32)>,
+
     pub rng_seed: u64,
     pub rng_counter: u64,
 }
@@ -177,6 +180,7 @@ impl GameState {
             sea_zones: Vec::new(),   // Populated by setup
             powers,
             political: PoliticalState::new(),
+            pending_purchases: Vec::new(),
             action_log: Vec::new(),
             undo_checkpoints: vec![0],
             rng_seed: seed,

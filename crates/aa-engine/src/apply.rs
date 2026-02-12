@@ -30,7 +30,7 @@ pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Re
             let old_phase = state.current_phase;
 
             // For ConfirmPurchases, capture purchases for later mobilization
-            let _purchased_units = if matches!(action, Action::ConfirmPurchases) {
+            let purchased_units = if matches!(action, Action::ConfirmPurchases) {
                 if let PhaseState::Purchase(ref ps) = state.phase_state {
                     ps.purchases.clone()
                 } else {
@@ -39,6 +39,16 @@ pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Re
             } else {
                 Vec::new()
             };
+
+            // For ConfirmIncome, collect income before transitioning
+            if matches!(action, Action::ConfirmIncome) {
+                crate::income::apply_collect_income(state, _map);
+            }
+
+            // For ConfirmPurchases, save purchases to state
+            if matches!(action, Action::ConfirmPurchases) {
+                state.pending_purchases = purchased_units.clone();
+            }
 
             // For ConfirmCombatMovement, identify pending combats
             if matches!(action, Action::ConfirmCombatMovement) {
@@ -68,12 +78,29 @@ pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Re
             if let Some(next_phase) = state.current_phase.next() {
                 state.current_phase = next_phase;
                 state.phase_state = create_phase_state(next_phase);
+
+                // If transitioning to Mobilize, populate units_to_place from pending_purchases
+                if next_phase == Phase::Mobilize && !state.pending_purchases.is_empty() {
+                    if let PhaseState::Mobilize(ref mut ms) = state.phase_state {
+                        ms.units_to_place = state.pending_purchases.clone();
+                    }
+                }
+
                 events.push(GameEvent::PhaseChanged {
                     from: old_phase,
                     to: next_phase,
                 });
             } else {
                 // End of turn: advance to next power
+                // Clear just_captured flags for the current power's territories
+                for territory in &mut state.territories {
+                    if territory.just_captured && territory.owner == Some(state.current_power) {
+                        territory.just_captured = false;
+                    }
+                }
+                // Clear pending purchases
+                state.pending_purchases.clear();
+
                 let next = power::next_power(state.current_power);
                 let old_power = state.current_power;
                 state.current_power = next;
@@ -242,8 +269,22 @@ pub fn apply_action(state: &mut GameState, action: Action, _map: &GameMap) -> Re
             return apply_continue_combat_action(state);
         }
 
-        // Other actions not yet implemented
-        _ => {}
+        Action::PlaceUnit { unit_type, territory_id } => {
+            return apply_place_unit(state, *unit_type, *territory_id);
+        }
+
+        Action::DeclareWar { against } => {
+            let war_events = crate::politics::apply_declare_war(state, *against);
+            let applied = AppliedAction {
+                action: action.clone(),
+                inverse: InverseAction::Irreversible,
+            };
+            state.action_log.push(applied.clone());
+            return Ok(ActionResult { applied, events: war_events });
+        }
+
+        // Undo handled above
+        Action::Undo => unreachable!(),
     }
 
     let applied = AppliedAction {
@@ -502,6 +543,72 @@ fn apply_land_air_unit(
         applied,
         events: Vec::new(),
     })
+}
+
+// =========================================================================
+// Mobilize phase action handlers
+// =========================================================================
+
+/// Apply a PlaceUnit action during the Mobilize phase.
+fn apply_place_unit(
+    state: &mut GameState,
+    unit_type: crate::unit::UnitType,
+    territory_id: crate::territory::TerritoryId,
+) -> Result<ActionResult, EngineError> {
+    // Create a new unit and place it
+    let unit_id = next_unit_id(state);
+    let unit = crate::unit::UnitInstance::new(unit_id, unit_type, state.current_power);
+
+    let stats = crate::unit::get_unit_stats(unit_type);
+    if stats.domain == crate::unit::UnitDomain::Sea {
+        // Naval units go to an adjacent sea zone
+        // Find the first adjacent sea zone
+        // Note: In a full implementation, the player would choose the sea zone
+        // For now, place in the first adjacent sea zone
+        // Actually, we'll place the unit in the territory and the UI handles display
+        // The action's territory_id refers to the IC territory
+        if let Some(territory) = state.territories.get_mut(territory_id as usize) {
+            territory.units.push(unit);
+        }
+    } else {
+        if let Some(territory) = state.territories.get_mut(territory_id as usize) {
+            territory.units.push(unit);
+        }
+    }
+
+    // Record in phase state
+    if let PhaseState::Mobilize(ref mut ms) = state.phase_state {
+        ms.placements.push((unit_type, territory_id));
+    }
+
+    let events = vec![GameEvent::UnitsPlaced {
+        unit_type,
+        territory_id,
+    }];
+
+    let applied = AppliedAction {
+        action: Action::PlaceUnit { unit_type, territory_id },
+        inverse: InverseAction::Simple(Action::Undo), // Simplified undo
+    };
+    state.action_log.push(applied.clone());
+
+    Ok(ActionResult { applied, events })
+}
+
+/// Get the next available unit ID.
+fn next_unit_id(state: &GameState) -> u32 {
+    let mut max_id = 0u32;
+    for territory in &state.territories {
+        for unit in &territory.units {
+            max_id = max_id.max(unit.id);
+        }
+    }
+    for sz in &state.sea_zones {
+        for unit in &sz.units {
+            max_id = max_id.max(unit.id);
+        }
+    }
+    max_id + 1
 }
 
 // =========================================================================

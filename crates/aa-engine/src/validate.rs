@@ -96,8 +96,11 @@ pub fn validate_action_with_map(state: &GameState, action: &Action, map: Option<
                 });
             }
         }
-        // These can be used in any phase
-        Action::DeclareWar { .. } | Action::ConfirmPhase => {}
+        Action::DeclareWar { .. } => {
+            // War declarations can happen during the Combat Movement phase
+            // (or at the start of a turn, before combat moves)
+        }
+        Action::ConfirmPhase => {}
     }
 
     // Detailed per-action validation
@@ -156,12 +159,28 @@ pub fn validate_action_with_map(state: &GameState, action: &Action, map: Option<
         Action::ContinueCombatRound => {
             validate_continue_combat_round(state)?;
         }
+        Action::PlaceUnit { unit_type, territory_id } => {
+            if let Some(m) = map {
+                crate::mobilize::validate_place_unit(state, m, *unit_type, *territory_id)?;
+            }
+        }
+        Action::ConfirmMobilization => {
+            crate::mobilize::validate_confirm_mobilization(state)?;
+        }
+        Action::ConfirmIncome => {
+            // Always valid if in correct phase
+        }
+        Action::DeclareWar { against } => {
+            crate::politics::validate_declare_war(state, *against)?;
+        }
         Action::ConfirmPhase => {
             if state.current_phase == Phase::ConductCombat {
                 validate_confirm_combat(state)?;
             }
         }
-        _ => {}
+        Action::Undo => {
+            // Already handled above
+        }
     }
 
     Ok(())

@@ -6,8 +6,13 @@ import type { Power } from "./Power";
 import type { PowerState } from "./PowerState";
 import type { SeaZoneState } from "./SeaZoneState";
 import type { TerritoryState } from "./TerritoryState";
+import type { UnitType } from "./UnitType";
 
 /**
  * The complete game state. This is the single source of truth.
  */
-export type GameState = { turn_number: number, current_power: Power, current_phase: Phase, phase_state: PhaseState, territories: Array<TerritoryState>, sea_zones: Array<SeaZoneState>, powers: Array<PowerState>, political: PoliticalState, rng_seed: bigint, rng_counter: bigint, };
+export type GameState = { turn_number: number, current_power: Power, current_phase: Phase, phase_state: PhaseState, territories: Array<TerritoryState>, sea_zones: Array<SeaZoneState>, powers: Array<PowerState>, political: PoliticalState, 
+/**
+ * Units purchased this turn, to be placed during Mobilize phase.
+ */
+pending_purchases: Array<[UnitType, number]>, rng_seed: bigint, rng_counter: bigint, };
