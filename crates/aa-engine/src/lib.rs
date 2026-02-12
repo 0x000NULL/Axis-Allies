@@ -20,6 +20,12 @@ pub mod purchase;
 pub mod movement;
 pub mod validate;
 
+pub mod income;
+pub mod mobilize;
+pub mod politics;
+pub mod special;
+pub mod victory;
+
 pub mod data;
 
 use action::{Action, ActionResult, GameEvent, LegalAction};
@@ -132,7 +138,8 @@ impl Engine {
 
     /// Check if a victory condition has been met.
     pub fn check_victory(&self) -> Option<GameEvent> {
-        None // Phase 8
+        victory::check_victory(&self.state, &self.map)
+            .map(|r| victory::victory_event(&r))
     }
 
     /// Serialize the game state to JSON (for WASM bridge).
