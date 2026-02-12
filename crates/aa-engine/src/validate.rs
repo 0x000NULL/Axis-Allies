@@ -11,7 +11,7 @@ use crate::phase::{Phase, PhaseState};
 use crate::power::Power;
 use crate::state::GameState;
 use crate::territory::{RegionId, TerritoryId};
-use crate::unit::{get_unit_stats, UnitDomain, UnitType};
+use crate::unit::{get_unit_stats, UnitDomain, UnitId, UnitType};
 
 /// Validate that an action is legal in the current game state.
 pub fn validate_action(state: &GameState, action: &Action) -> Result<(), EngineError> {
@@ -134,6 +134,32 @@ pub fn validate_action_with_map(state: &GameState, action: &Action, map: Option<
         }
         Action::ConfirmNonCombatMovement => {
             validate_confirm_noncombat_movement(state)?;
+        }
+        Action::SelectBattle { location } => {
+            validate_select_battle(state, *location)?;
+        }
+        Action::RollAttack => {
+            validate_roll_attack(state)?;
+        }
+        Action::RollDefense => {
+            validate_roll_defense(state)?;
+        }
+        Action::SelectCasualties { casualties } => {
+            validate_select_casualties(state, casualties)?;
+        }
+        Action::AttackerRetreat { to } => {
+            validate_attacker_retreat(state, *to)?;
+        }
+        Action::SubmergeSubmarine { unit_id } => {
+            validate_submerge_submarine(state, *unit_id)?;
+        }
+        Action::ContinueCombatRound => {
+            validate_continue_combat_round(state)?;
+        }
+        Action::ConfirmPhase => {
+            if state.current_phase == Phase::ConductCombat {
+                validate_confirm_combat(state)?;
+            }
         }
         _ => {}
     }
@@ -467,8 +493,252 @@ fn validate_land_air_unit(
 
 /// Validate ConfirmNonCombatMovement: all air units that moved must be landed.
 fn validate_confirm_noncombat_movement(_state: &GameState) -> Result<(), EngineError> {
-    // Check that no air units are "in flight" (moved but not landed)
-    // This is simplified - in a full implementation we'd track air units in flight
-    // For now, always valid
+    Ok(())
+}
+
+// =========================================================================
+// Combat phase validation
+// =========================================================================
+
+use crate::combat::CombatSubPhase;
+
+/// Validate SelectBattle action.
+fn validate_select_battle(state: &GameState, location: RegionId) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    if cs.active_combat.is_some() {
+        return Err(EngineError::InvalidAction {
+            reason: "A battle is already in progress. Resolve it first.".into(),
+        });
+    }
+
+    if !cs.pending_battles.contains(&location) {
+        return Err(EngineError::InvalidAction {
+            reason: "No pending battle at this location".into(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate RollAttack action.
+fn validate_roll_attack(state: &GameState) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    match combat.sub_phase {
+        CombatSubPhase::AAFire
+        | CombatSubPhase::ShoreBombardment
+        | CombatSubPhase::AttackerSubmarineStrike
+        | CombatSubPhase::AttackerRolls => Ok(()),
+        _ => Err(EngineError::InvalidAction {
+            reason: format!("Cannot roll attack in sub-phase {:?}", combat.sub_phase),
+        }),
+    }
+}
+
+/// Validate RollDefense action.
+fn validate_roll_defense(state: &GameState) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    match combat.sub_phase {
+        CombatSubPhase::DefenderSubmarineStrike
+        | CombatSubPhase::DefenderRolls => Ok(()),
+        _ => Err(EngineError::InvalidAction {
+            reason: format!("Cannot roll defense in sub-phase {:?}", combat.sub_phase),
+        }),
+    }
+}
+
+/// Validate SelectCasualties action.
+fn validate_select_casualties(state: &GameState, casualties: &[UnitId]) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    // Check we're in a casualty selection sub-phase
+    let defender_side = match combat.sub_phase {
+        CombatSubPhase::AAFireCasualties
+        | CombatSubPhase::DefenderSelectsCasualties
+        | CombatSubPhase::ShoreBombardmentCasualties
+        | CombatSubPhase::DefenderSubmarineStrikeCasualties => true,
+        CombatSubPhase::AttackerSelectsCasualties
+        | CombatSubPhase::AttackerSubmarineStrikeCasualties => false,
+        _ => return Err(EngineError::InvalidAction {
+            reason: format!("Not in casualty selection phase: {:?}", combat.sub_phase),
+        }),
+    };
+
+    // Check casualties belong to the correct side
+    let valid_units = if defender_side {
+        &combat.defender_units
+    } else {
+        &combat.attacker_units
+    };
+
+    for &cid in casualties {
+        if !valid_units.contains(&cid) {
+            return Err(EngineError::InvalidAction {
+                reason: format!("Unit {} is not a valid casualty selection", cid),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate AttackerRetreat action.
+fn validate_attacker_retreat(state: &GameState, _to: RegionId) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    if combat.sub_phase != CombatSubPhase::AttackerDecision {
+        return Err(EngineError::InvalidAction {
+            reason: "Can only retreat during attacker decision phase".into(),
+        });
+    }
+
+    // TODO: validate retreat destination is valid
+
+    Ok(())
+}
+
+/// Validate SubmergeSubmarine action.
+fn validate_submerge_submarine(state: &GameState, unit_id: UnitId) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    if combat.sub_phase != CombatSubPhase::AttackerDecision {
+        return Err(EngineError::InvalidAction {
+            reason: "Can only submerge during attacker decision phase".into(),
+        });
+    }
+
+    // Check unit is a submarine
+    let is_sub = movement::find_unit(state, unit_id)
+        .map(|(_, u)| u.unit_type == UnitType::Submarine)
+        .unwrap_or(false);
+
+    if !is_sub {
+        return Err(EngineError::InvalidAction {
+            reason: "Only submarines can submerge".into(),
+        });
+    }
+
+    // Check no enemy destroyer
+    let defender_has_dd = combat.defender_units.iter().any(|&uid| {
+        movement::find_unit(state, uid)
+            .map(|(_, u)| u.unit_type == UnitType::Destroyer)
+            .unwrap_or(false)
+    });
+
+    if defender_has_dd {
+        return Err(EngineError::InvalidAction {
+            reason: "Cannot submerge when enemy has a destroyer".into(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate ContinueCombatRound action.
+fn validate_continue_combat_round(state: &GameState) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    let combat = cs.active_combat.as_ref().ok_or(EngineError::InvalidAction {
+        reason: "No active battle".into(),
+    })?;
+
+    if combat.sub_phase != CombatSubPhase::AttackerDecision {
+        return Err(EngineError::InvalidAction {
+            reason: "Can only continue combat during attacker decision phase".into(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate ConfirmPhase for ConductCombat: all battles must be resolved.
+fn validate_confirm_combat(state: &GameState) -> Result<(), EngineError> {
+    let cs = match &state.phase_state {
+        PhaseState::Combat(cs) => cs,
+        _ => return Err(EngineError::WrongPhase {
+            expected: "ConductCombat".into(),
+            actual: format!("{:?}", state.current_phase),
+        }),
+    };
+
+    if !cs.pending_battles.is_empty() {
+        return Err(EngineError::InvalidAction {
+            reason: format!(
+                "Cannot confirm combat phase: {} battles still pending",
+                cs.pending_battles.len()
+            ),
+        });
+    }
+
+    if cs.active_combat.is_some() {
+        return Err(EngineError::InvalidAction {
+            reason: "Cannot confirm combat phase: a battle is still in progress".into(),
+        });
+    }
+
     Ok(())
 }
