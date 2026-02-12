@@ -898,12 +898,6 @@ mod tests {
     use crate::phase::CombatState;
     use crate::territory::SeaZoneId;
 
-    fn test_state_and_map() -> (GameState, GameMap) {
-        let map = GameMap::new();
-        let state = crate::setup::create_initial_state(42, &map);
-        (state, map)
-    }
-
     /// Helper: set up state in ConductCombat phase with given units at a territory.
     fn setup_land_combat(
         attacker: Power,
@@ -915,8 +909,14 @@ mod tests {
         let map = GameMap::new();
         let mut state = crate::setup::create_initial_state(42, &map);
 
-        // Clear all units from the territory
-        state.territories[territory as usize].units.clear();
+        // Clear ALL units from ALL regions to avoid ID collisions
+        for t in state.territories.iter_mut() {
+            t.units.clear();
+        }
+        for sz in state.sea_zones.iter_mut() {
+            sz.units.clear();
+        }
+
         state.territories[territory as usize].owner = Some(defender);
 
         // Place attacker units (marked as moved)
@@ -953,8 +953,13 @@ mod tests {
         let map = GameMap::new();
         let mut state = crate::setup::create_initial_state(42, &map);
 
-        // Clear all units from the sea zone
-        state.sea_zones[sea_zone as usize].units.clear();
+        // Clear ALL units from ALL regions to avoid ID collisions
+        for t in state.territories.iter_mut() {
+            t.units.clear();
+        }
+        for sz in state.sea_zones.iter_mut() {
+            sz.units.clear();
+        }
 
         // Place attacker units
         for (id, ut) in &attacker_units {
@@ -1127,7 +1132,7 @@ mod tests {
 
     #[test]
     fn test_combat_pairing_infantry_artillery() {
-        let mut state = setup_land_combat(
+        let state = setup_land_combat(
             Power::Germany,
             vec![
                 (100, UnitType::Infantry),
@@ -1146,7 +1151,7 @@ mod tests {
 
     #[test]
     fn test_combat_pairing_tac_bomber_with_tank() {
-        let mut state = setup_land_combat(
+        let state = setup_land_combat(
             Power::Germany,
             vec![
                 (100, UnitType::TacticalBomber),

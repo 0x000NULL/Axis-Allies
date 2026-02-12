@@ -4,9 +4,9 @@
 mod tests {
     use crate::action::Action;
     use crate::error::EngineError;
-    use crate::phase::{Phase, PhaseState, PurchaseState};
+    use crate::phase::{Phase, PhaseState};
     use crate::power::Power;
-    use crate::territory::{Facility, FacilityType, TerritoryState};
+    use crate::territory::{Facility, FacilityType};
     use crate::unit::UnitType;
     use crate::Engine;
 
@@ -340,6 +340,7 @@ mod tests {
         // Manually add a damaged factory to a German territory
         let tid = 0; // First territory
         engine.state_mut().territories[tid].owner = Some(Power::Germany);
+        engine.state_mut().territories[tid].facilities.clear();
         engine.state_mut().territories[tid].facilities.push(Facility {
             facility_type: FacilityType::MajorIndustrialComplex,
             damage: 5,

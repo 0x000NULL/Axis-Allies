@@ -335,6 +335,7 @@ mod tests {
         state.current_power = Power::Germany;
 
         // Add a Major IC to Germany (territory 0)
+        state.territories[0].facilities.clear();
         state.territories[0].facilities.push(Facility::new(
             FacilityType::MajorIndustrialComplex,
             5, // Germany IPC value
