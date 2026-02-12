@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axis &amp; Allies Global 1940</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- Top bar -->
+  <header id="top-bar">
+    <div id="game-title">AXIS &amp; ALLIES — GLOBAL 1940</div>
+    <div id="turn-info">
+      <span id="turn-number">Turn 1</span>
+      <span id="current-power" class="power-badge">Germany</span>
+      <span id="current-phase">Purchase &amp; Repair</span>
+    </div>
+    <div id="phase-bar">
+      <div class="phase-step" data-phase="PurchaseAndRepair">Purchase</div>
+      <div class="phase-step" data-phase="CombatMovement">Combat Move</div>
+      <div class="phase-step" data-phase="ConductCombat">Combat</div>
+      <div class="phase-step" data-phase="NonCombatMovement">Non-Combat</div>
+      <div class="phase-step" data-phase="Mobilize">Mobilize</div>
+      <div class="phase-step" data-phase="CollectIncome">Income</div>
+    </div>
+  </header>
+
+  <!-- Main area -->
+  <div id="main-area">
+    <!-- Map -->
+    <div id="map-container">
+      <canvas id="map-canvas"></canvas>
+      <div id="map-tooltip" class="hidden"></div>
+    </div>
+
+    <!-- Right panel -->
+    <aside id="side-panel">
+      <div id="power-summary">
+        <h3>Powers</h3>
+        <div id="power-list"></div>
+      </div>
+      <div id="territory-info" class="hidden">
+        <h3 id="territory-name">—</h3>
+        <div id="territory-details"></div>
+      </div>
+      <div id="action-panel">
+        <h3>Actions</h3>
+        <div id="action-content"></div>
+      </div>
+      <div id="event-log">
+        <h3>Event Log</h3>
+        <div id="log-content"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Bottom bar -->
+  <footer id="bottom-bar">
+    <button id="btn-end-phase" class="btn btn-primary">End Phase</button>
+    <button id="btn-undo" class="btn btn-secondary">Undo</button>
+    <div id="status-text"></div>
+  </footer>
+</div>
+
+<!-- Purchase dialog -->
+<div id="purchase-dialog" class="dialog hidden">
+  <div class="dialog-content">
+    <h2>Purchase Units</h2>
+    <div id="purchase-budget">IPCs: <span id="purchase-ipcs">0</span></div>
+    <div id="purchase-grid"></div>
+    <div class="dialog-buttons">
+      <button id="btn-confirm-purchases" class="btn btn-primary">Confirm Purchases</button>
+    </div>
+  </div>
+</div>
+
+<!-- Combat dialog -->
+<div id="combat-dialog" class="dialog hidden">
+  <div class="dialog-content">
+    <h2 id="combat-title">Battle</h2>
+    <div id="combat-content"></div>
+    <div class="dialog-buttons" id="combat-buttons"></div>
+  </div>
+</div>
+
+<!-- Mobilize dialog -->
+<div id="mobilize-dialog" class="dialog hidden">
+  <div class="dialog-content">
+    <h2>Place Units</h2>
+    <div id="mobilize-content"></div>
+    <div class="dialog-buttons">
+      <button id="btn-confirm-mobilize" class="btn btn-primary">Confirm Placement</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
