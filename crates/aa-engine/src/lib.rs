@@ -26,6 +26,9 @@ pub mod politics;
 pub mod special;
 pub mod victory;
 
+pub mod ai;
+pub mod save;
+
 pub mod data;
 
 use action::{Action, ActionResult, GameEvent, LegalAction};
