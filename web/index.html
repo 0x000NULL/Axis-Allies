@@ -8,91 +8,220 @@
 </head>
 <body>
 <div id="app">
-  <!-- Top bar -->
-  <header id="top-bar">
-    <div id="game-title">AXIS &amp; ALLIES — GLOBAL 1940</div>
-    <div id="turn-info">
-      <span id="turn-number">Turn 1</span>
-      <span id="current-power" class="power-badge">Germany</span>
-      <span id="current-phase">Purchase &amp; Repair</span>
+  <!-- Setup Screen (shown initially) -->
+  <div id="setup-screen">
+    <div id="setup-container">
+      <h1 class="setup-title">AXIS &amp; ALLIES</h1>
+      <h2 class="setup-subtitle">GLOBAL 1940 — 2nd Edition</h2>
+      
+      <div class="setup-section">
+        <h3>Game Mode</h3>
+        <div class="mode-buttons">
+          <button class="mode-btn selected" data-mode="ai" onclick="selectMode('ai')">
+            <span class="mode-icon">🤖</span>
+            <span class="mode-label">vs AI</span>
+            <span class="mode-desc">Play against computer opponents</span>
+          </button>
+          <button class="mode-btn" data-mode="hotseat" onclick="selectMode('hotseat')">
+            <span class="mode-icon">👥</span>
+            <span class="mode-label">Hot Seat</span>
+            <span class="mode-desc">Pass &amp; play on one device</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="ai-settings" class="setup-section">
+        <h3>Pick Your Side</h3>
+        <div class="side-buttons">
+          <button class="side-btn selected" data-side="allies" onclick="selectSide('allies')">
+            <span style="color:#4caf50">★</span> Allies
+          </button>
+          <button class="side-btn" data-side="axis" onclick="selectSide('axis')">
+            <span style="color:#f44336">✠</span> Axis
+          </button>
+        </div>
+        
+        <h3>AI Difficulty</h3>
+        <div class="difficulty-buttons">
+          <button class="diff-btn" data-diff="easy" onclick="selectDifficulty('easy')">Easy</button>
+          <button class="diff-btn selected" data-diff="normal" onclick="selectDifficulty('normal')">Normal</button>
+          <button class="diff-btn" data-diff="hard" onclick="selectDifficulty('hard')">Hard</button>
+        </div>
+      </div>
+
+      <div class="setup-actions">
+        <button class="btn btn-gold btn-large" onclick="startNewGame()">Start Game</button>
+        <button class="btn btn-secondary" onclick="loadGameFromFile()">Load Saved Game</button>
+      </div>
+
+      <div class="setup-footer">
+        <span id="engine-version"></span>
+      </div>
     </div>
+  </div>
+
+  <!-- Game Screen (hidden initially) -->
+  <div id="game-screen" class="hidden">
+    <!-- Top bar -->
+    <header id="top-bar">
+      <div id="game-title">AXIS &amp; ALLIES — GLOBAL 1940</div>
+      <div id="turn-info">
+        <span id="turn-number">Turn 1</span>
+        <span id="current-power" class="power-badge">Germany</span>
+        <span id="current-phase">Purchase &amp; Repair</span>
+      </div>
+      <div id="top-buttons">
+        <button class="icon-btn" onclick="toggleSoundEffects()" title="Toggle Sound" id="btn-sound">🔊</button>
+        <button class="icon-btn" onclick="saveGame()" title="Save Game">💾</button>
+        <button class="icon-btn" onclick="showMenu()" title="Menu">☰</button>
+      </div>
+    </header>
+
+    <!-- Phase bar -->
     <div id="phase-bar">
-      <div class="phase-step" data-phase="PurchaseAndRepair">Purchase</div>
-      <div class="phase-step" data-phase="CombatMovement">Combat Move</div>
-      <div class="phase-step" data-phase="ConductCombat">Combat</div>
-      <div class="phase-step" data-phase="NonCombatMovement">Non-Combat</div>
-      <div class="phase-step" data-phase="Mobilize">Mobilize</div>
-      <div class="phase-step" data-phase="CollectIncome">Income</div>
+      <div class="phase-step" data-phase="PurchaseAndRepair">
+        <span class="phase-num">1</span> Purchase
+      </div>
+      <div class="phase-step" data-phase="CombatMovement">
+        <span class="phase-num">2</span> Combat Move
+      </div>
+      <div class="phase-step" data-phase="ConductCombat">
+        <span class="phase-num">3</span> Combat
+      </div>
+      <div class="phase-step" data-phase="NonCombatMovement">
+        <span class="phase-num">4</span> Non-Combat
+      </div>
+      <div class="phase-step" data-phase="Mobilize">
+        <span class="phase-num">5</span> Mobilize
+      </div>
+      <div class="phase-step" data-phase="CollectIncome">
+        <span class="phase-num">6</span> Income
+      </div>
     </div>
-  </header>
 
-  <!-- Main area -->
-  <div id="main-area">
-    <!-- Map -->
-    <div id="map-container">
-      <canvas id="map-canvas"></canvas>
-      <div id="map-tooltip" class="hidden"></div>
+    <!-- AI thinking banner -->
+    <div id="ai-banner" class="hidden">
+      <div class="ai-thinking">
+        <span class="spinner"></span>
+        <span id="ai-banner-text">AI is thinking...</span>
+      </div>
     </div>
 
-    <!-- Right panel -->
-    <aside id="side-panel">
-      <div id="power-summary">
-        <h3>Powers</h3>
-        <div id="power-list"></div>
+    <!-- Main area -->
+    <div id="main-area">
+      <!-- Map -->
+      <div id="map-container">
+        <canvas id="map-canvas"></canvas>
+        <div id="map-tooltip" class="hidden"></div>
+        <div id="map-controls">
+          <button class="map-btn" onclick="zoomIn()" title="Zoom In">+</button>
+          <button class="map-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+          <button class="map-btn" onclick="resetView()" title="Reset View">⊙</button>
+        </div>
       </div>
-      <div id="territory-info" class="hidden">
-        <h3 id="territory-name">—</h3>
-        <div id="territory-details"></div>
-      </div>
-      <div id="action-panel">
-        <h3>Actions</h3>
-        <div id="action-content"></div>
-      </div>
-      <div id="event-log">
-        <h3>Event Log</h3>
-        <div id="log-content"></div>
-      </div>
-    </aside>
+
+      <!-- Right panel -->
+      <aside id="side-panel">
+        <div id="power-summary">
+          <h3>Powers</h3>
+          <div id="power-list"></div>
+        </div>
+        <div id="territory-info" class="hidden">
+          <h3 id="territory-name">—</h3>
+          <div id="territory-details"></div>
+        </div>
+        <div id="action-panel">
+          <h3>Actions</h3>
+          <div id="action-content"></div>
+        </div>
+        <div id="event-log">
+          <h3>Event Log</h3>
+          <div id="log-content"></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Bottom bar -->
+    <footer id="bottom-bar">
+      <button id="btn-end-phase" class="btn btn-primary">End Phase ▶</button>
+      <button id="btn-undo" class="btn btn-secondary">↩ Undo</button>
+      <div id="status-text"></div>
+    </footer>
   </div>
 
-  <!-- Bottom bar -->
-  <footer id="bottom-bar">
-    <button id="btn-end-phase" class="btn btn-primary">End Phase</button>
-    <button id="btn-undo" class="btn btn-secondary">Undo</button>
-    <div id="status-text"></div>
-  </footer>
-</div>
-
-<!-- Purchase dialog -->
-<div id="purchase-dialog" class="dialog hidden">
-  <div class="dialog-content">
-    <h2>Purchase Units</h2>
-    <div id="purchase-budget">IPCs: <span id="purchase-ipcs">0</span></div>
-    <div id="purchase-grid"></div>
-    <div class="dialog-buttons">
-      <button id="btn-confirm-purchases" class="btn btn-primary">Confirm Purchases</button>
+  <!-- Purchase dialog -->
+  <div id="purchase-dialog" class="dialog hidden">
+    <div class="dialog-content dialog-wide">
+      <div class="dialog-header">
+        <h2>Purchase Units</h2>
+        <div id="purchase-budget" class="budget-display">
+          <span class="budget-label">Budget:</span>
+          <span id="purchase-ipcs" class="budget-amount">0</span>
+          <span class="budget-label">IPC</span>
+          <span class="budget-sep">|</span>
+          <span class="budget-label">Spent:</span>
+          <span id="purchase-spent" class="budget-spent">0</span>
+          <span class="budget-label">IPC</span>
+        </div>
+      </div>
+      <div id="purchase-grid"></div>
+      <div class="dialog-buttons">
+        <button id="btn-confirm-purchases" class="btn btn-primary">Confirm Purchases</button>
+        <button class="btn btn-secondary" onclick="closePurchaseDialog()">Cancel</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Combat dialog -->
-<div id="combat-dialog" class="dialog hidden">
-  <div class="dialog-content">
-    <h2 id="combat-title">Battle</h2>
-    <div id="combat-content"></div>
-    <div class="dialog-buttons" id="combat-buttons"></div>
-  </div>
-</div>
-
-<!-- Mobilize dialog -->
-<div id="mobilize-dialog" class="dialog hidden">
-  <div class="dialog-content">
-    <h2>Place Units</h2>
-    <div id="mobilize-content"></div>
-    <div class="dialog-buttons">
-      <button id="btn-confirm-mobilize" class="btn btn-primary">Confirm Placement</button>
+  <!-- Combat dialog -->
+  <div id="combat-dialog" class="dialog hidden">
+    <div class="dialog-content">
+      <h2 id="combat-title">⚔️ Battle</h2>
+      <div id="combat-content"></div>
+      <div class="dialog-buttons" id="combat-buttons"></div>
     </div>
   </div>
+
+  <!-- Mobilize dialog -->
+  <div id="mobilize-dialog" class="dialog hidden">
+    <div class="dialog-content">
+      <h2>Place Units</h2>
+      <div id="mobilize-content"></div>
+      <div class="dialog-buttons">
+        <button id="btn-confirm-mobilize" class="btn btn-primary">Confirm Placement</button>
+        <button class="btn btn-secondary" onclick="closeMobilizeDialog()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Turn summary dialog -->
+  <div id="turn-summary-dialog" class="dialog hidden">
+    <div class="dialog-content">
+      <h2 id="turn-summary-title">Turn Summary</h2>
+      <div id="turn-summary-content"></div>
+      <div class="dialog-buttons">
+        <button class="btn btn-primary" onclick="closeTurnSummary()">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Menu dialog -->
+  <div id="menu-dialog" class="dialog hidden">
+    <div class="dialog-content">
+      <h2>Menu</h2>
+      <div class="menu-options">
+        <button class="btn btn-primary menu-btn-full" onclick="saveGame(); closeMenu()">💾 Save Game</button>
+        <button class="btn btn-secondary menu-btn-full" onclick="loadGameFromFile(); closeMenu()">📂 Load Game</button>
+        <button class="btn btn-secondary menu-btn-full" onclick="showGameStats()">📊 Game Statistics</button>
+        <button class="btn btn-danger menu-btn-full" onclick="quitToMenu()">🏠 Quit to Menu</button>
+      </div>
+      <div class="dialog-buttons">
+        <button class="btn btn-secondary" onclick="closeMenu()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file input for loading saves -->
+  <input type="file" id="file-input" accept=".json,.aa1940" class="hidden" onchange="handleFileLoad(event)">
 </div>
 
 <script type="module" src="app.js"></script>
