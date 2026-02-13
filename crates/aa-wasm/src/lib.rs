@@ -117,4 +117,73 @@ impl WasmEngine {
     pub fn engine_version() -> String {
         env!("CARGO_PKG_VERSION").to_string()
     }
+
+    /// Get the next AI action for the current game state.
+    /// Returns a JSON-encoded Action.
+    #[wasm_bindgen(js_name = aiNextAction)]
+    pub fn ai_next_action(&self, difficulty: &str) -> String {
+        let diff = match difficulty {
+            "easy" | "Easy" => aa_engine::ai::AiDifficulty::Easy,
+            "hard" | "Hard" => aa_engine::ai::AiDifficulty::Hard,
+            _ => aa_engine::ai::AiDifficulty::Normal,
+        };
+        let action = aa_engine::ai::ai_next_action(self.engine.state(), self.engine.map(), diff);
+        serde_json::to_string(&action).unwrap_or_else(|e| {
+            conversions::error_json(&format!("Failed to serialize AI action: {}", e))
+        })
+    }
+
+    /// Play a full AI turn. Returns JSON array of actions.
+    #[wasm_bindgen(js_name = aiPlayTurn)]
+    pub fn ai_play_turn(&self, difficulty: &str) -> String {
+        let diff = match difficulty {
+            "easy" | "Easy" => aa_engine::ai::AiDifficulty::Easy,
+            "hard" | "Hard" => aa_engine::ai::AiDifficulty::Hard,
+            _ => aa_engine::ai::AiDifficulty::Normal,
+        };
+        let actions = aa_engine::ai::ai_play_turn(self.engine.state(), self.engine.map(), diff);
+        serde_json::to_string(&actions).unwrap_or_else(|e| {
+            conversions::error_json(&format!("Failed to serialize AI actions: {}", e))
+        })
+    }
+
+    /// Create a save file with metadata. Returns JSON string.
+    #[wasm_bindgen(js_name = createSaveFile)]
+    pub fn create_save_file(&self, name: &str, timestamp: f64) -> Result<String, JsValue> {
+        let save = aa_engine::save::SaveFile::from_state(
+            self.engine.state(),
+            name.to_string(),
+            timestamp as u64,
+        );
+        save.to_json_compact()
+            .map_err(|e| JsValue::from_str(&format!("Save failed: {}", e)))
+    }
+
+    /// Load a game from a save file JSON string.
+    #[wasm_bindgen(js_name = loadSaveFile)]
+    pub fn load_save_file(json: &str) -> Result<WasmEngine, JsValue> {
+        let save = aa_engine::save::SaveFile::from_json(json)
+            .map_err(|e| JsValue::from_str(&format!("Load failed: {}", e)))?;
+        Ok(WasmEngine {
+            engine: aa_engine::Engine::from_state(save.state),
+        })
+    }
+
+    /// Get the current power name.
+    #[wasm_bindgen(js_name = currentPower)]
+    pub fn current_power(&self) -> String {
+        format!("{:?}", self.engine.state().current_power)
+    }
+
+    /// Get the current phase name.
+    #[wasm_bindgen(js_name = currentPhase)]
+    pub fn current_phase(&self) -> String {
+        format!("{:?}", self.engine.state().current_phase)
+    }
+
+    /// Get the current turn number.
+    #[wasm_bindgen(js_name = turnNumber)]
+    pub fn turn_number(&self) -> u32 {
+        self.engine.state().turn_number
+    }
 }
