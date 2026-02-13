@@ -28,6 +28,7 @@ pub mod victory;
 
 pub mod ai;
 pub mod save;
+pub mod multiplayer;
 
 pub mod data;
 
